@@ -12,6 +12,12 @@ ACTIONS = [
     "learn"
 ]
 
+FEATURE_NAMES = [
+    "size",
+    "speed",
+    "energy"
+]
+
 
 class Memory:
 
@@ -21,35 +27,46 @@ class Memory:
         self.load()
 
     def load(self):
+
         try:
+
             if os.path.exists(self.filename):
+
                 with open(
                     self.filename,
                     "r",
                     encoding="utf-8"
                 ) as file:
+
                     data = json.load(file)
 
                 if isinstance(data, list):
+
                     self.experiences = data[-1000:]
 
         except Exception:
+
             self.experiences = []
 
     def save(self):
+
         try:
+
             with open(
                 self.filename,
                 "w",
                 encoding="utf-8"
             ) as file:
+
                 json.dump(
                     self.experiences[-1000:],
                     file,
                     ensure_ascii=False,
                     indent=2
                 )
+
         except Exception:
+
             pass
 
     def add(
@@ -57,17 +74,31 @@ class Memory:
         state,
         action,
         reward,
-        source="normal"
+        source="normal",
+        features=None
     ):
 
         experience = {
+
             "state": state,
+
             "action": action,
-            "reward": round(float(reward), 6),
+
+            "reward":
+                round(
+                    float(reward),
+                    6
+                ),
+
             "source": source,
-            "time": datetime.now().isoformat(
-                timespec="seconds"
-            )
+
+            "features":
+                features,
+
+            "time":
+                datetime.now().isoformat(
+                    timespec="seconds"
+                )
         }
 
         self.experiences.append(
@@ -80,68 +111,108 @@ class Memory:
         self.save()
 
     def clear(self):
+
         self.experiences = []
+
         self.save()
 
     def count(self):
-        return len(self.experiences)
+
+        return len(
+            self.experiences
+        )
 
 
-class LearningAgent:
+class FeatureLearningAgent:
+
+    """
+    وكيل يتعلم من خصائص الحالة.
+
+    لا يخزن فقط:
+        الحالة -> الفعل
+
+    بل يتعلم:
+        الخصائص -> قيمة الفعل
+
+    ثم يجمع هذه المعرفة لاتخاذ قرار
+    في حالة جديدة.
+    """
 
     def __init__(self, memory=None):
 
         self.memory = memory or Memory()
 
-        self.values = {}
-        self.counts = {}
+        self.feature_values = {}
+
+        self.feature_counts = {}
 
         self.load_knowledge()
 
-    @staticmethod
-    def key(state, action):
-        return f"{state}|{action}"
+    def feature_key(
+        self,
+        feature_name,
+        feature_value,
+        action
+    ):
+
+        return (
+            f"{feature_name}|"
+            f"{feature_value}|"
+            f"{action}"
+        )
 
     def load_knowledge(self):
 
-        self.values = {}
-        self.counts = {}
+        self.feature_values = {}
+
+        self.feature_counts = {}
 
         for experience in self.memory.experiences:
 
-            state = experience.get("state")
-            action = experience.get("action")
-            reward = experience.get("reward")
+            features = experience.get(
+                "features"
+            )
+
+            action = experience.get(
+                "action"
+            )
+
+            reward = experience.get(
+                "reward"
+            )
 
             if (
-                state
+                isinstance(features, dict)
                 and action in ACTIONS
                 and reward is not None
             ):
-                self._update_value(
-                    state,
+
+                self._update_features(
+                    features,
                     action,
                     float(reward)
                 )
 
-    def _update_value(
+    def _update_one(
         self,
-        state,
+        feature_name,
+        feature_value,
         action,
         reward
     ):
 
-        key = self.key(
-            state,
+        key = self.feature_key(
+            feature_name,
+            feature_value,
             action
         )
 
-        old_count = self.counts.get(
+        old_count = self.feature_counts.get(
             key,
             0
         )
 
-        old_value = self.values.get(
+        old_value = self.feature_values.get(
             key,
             0.0
         )
@@ -152,23 +223,43 @@ class LearningAgent:
             old_value
             +
             (
-                reward - old_value
+                reward
+                -
+                old_value
             )
             /
             new_count
         )
 
-        self.counts[key] = new_count
-        self.values[key] = new_value
+        self.feature_counts[key] = \
+            new_count
 
-    def reset_learning(self):
+        self.feature_values[key] = \
+            new_value
 
-        self.values = {}
-        self.counts = {}
+    def _update_features(
+        self,
+        features,
+        action,
+        reward
+    ):
+
+        for feature_name in FEATURE_NAMES:
+
+            if feature_name not in features:
+                continue
+
+            self._update_one(
+                feature_name,
+                features[feature_name],
+                action,
+                reward
+            )
 
     def learn(
         self,
         state,
+        features,
         action,
         reward,
         source="training"
@@ -178,38 +269,85 @@ class LearningAgent:
             state,
             action,
             reward,
-            source
+            source,
+            features
         )
 
-        self._update_value(
-            state,
+        self._update_features(
+            features,
             action,
             float(reward)
         )
 
+    def reset_learning(self):
+
+        self.feature_values = {}
+
+        self.feature_counts = {}
+
+    def action_score(
+        self,
+        features,
+        action
+    ):
+
+        scores = []
+
+        for feature_name in FEATURE_NAMES:
+
+            if feature_name not in features:
+                continue
+
+            key = self.feature_key(
+                feature_name,
+                features[feature_name],
+                action
+            )
+
+            count = self.feature_counts.get(
+                key,
+                0
+            )
+
+            if count > 0:
+
+                scores.append(
+                    self.feature_values[key]
+                )
+
+        if not scores:
+
+            return 0.0
+
+        return sum(scores) / len(scores)
+
     def choose_action(
         self,
-        state,
+        features,
         epsilon=0.20,
         rng=None
     ):
 
         if rng is None:
+
             rng = random.Random()
 
         if rng.random() < epsilon:
 
-            return rng.choice(ACTIONS)
+            return rng.choice(
+                ACTIONS
+            )
 
         scores = {
-            action: self.values.get(
-                self.key(
-                    state,
+
+            action:
+                self.action_score(
+                    features,
                     action
-                ),
-                0.0
-            )
+                )
+
             for action in ACTIONS
+
         }
 
         best_value = max(
@@ -217,11 +355,18 @@ class LearningAgent:
         )
 
         best_actions = [
+
             action
-            for action, value in scores.items()
+
+            for action, value
+            in scores.items()
+
             if abs(
-                value - best_value
+                value
+                -
+                best_value
             ) < 1e-12
+
         ]
 
         return rng.choice(
@@ -232,46 +377,43 @@ class LearningAgent:
 class StructuredEnvironment:
 
     """
-    بيئة اختبار تعميم حقيقية.
+    بيئة لها قاعدة مخفية.
 
-    الوكيل لا يرى القاعدة المخفية.
+    الوكيل لا يحصل على القاعدة.
 
-    القاعدة تعتمد على خصائص الحالة،
-    وليس على اسم الحالة.
+    القاعدة تعتمد على:
+        size
+        speed
+        energy
     """
 
     def __init__(self, seed=2026):
 
-        self.rng = random.Random(seed)
+        self.rng = random.Random(
+            seed
+        )
 
-        self.actions = ACTIONS
-
-    def features_to_state(
+    def state_name(
         self,
-        size,
-        speed,
-        energy
+        features
     ):
 
         return (
-            f"S={size};"
-            f"V={speed};"
-            f"E={energy}"
+            f"S={features['size']};"
+            f"V={features['speed']};"
+            f"E={features['energy']}"
         )
 
     def optimal_action(
         self,
-        size,
-        speed,
-        energy
+        features
     ):
 
-        # القاعدة المخفية:
-        #
-        # الحجم + السرعة + الطاقة
-        # تحدد الفعل الأفضل.
-        #
-        # الوكيل لا يحصل على هذه القاعدة.
+        size = features["size"]
+
+        speed = features["speed"]
+
+        energy = features["energy"]
 
         score = (
             size
@@ -282,28 +424,26 @@ class StructuredEnvironment:
         )
 
         if score >= 2:
+
             return "explore"
 
         if score <= -1:
+
             return "observe"
 
         return "learn"
 
     def reward(
         self,
-        size,
-        speed,
-        energy,
+        features,
         action
     ):
 
-        correct_action = self.optimal_action(
-            size,
-            speed,
-            energy
+        correct = self.optimal_action(
+            features
         )
 
-        if action == correct_action:
+        if action == correct:
 
             mean = 0.90
 
@@ -324,16 +464,65 @@ class StructuredEnvironment:
             )
         )
 
-    def random_features(
-        self,
-        rng
-    ):
 
-        return (
-            rng.choice([0, 1, 2]),
-            rng.choice([0, 1, 2]),
-            rng.choice([0, 1, 2])
+def all_feature_states():
+
+    states = []
+
+    for size in [0, 1, 2]:
+
+        for speed in [0, 1, 2]:
+
+            for energy in [0, 1, 2]:
+
+                states.append({
+
+                    "size": size,
+
+                    "speed": speed,
+
+                    "energy": energy
+
+                })
+
+    return states
+
+
+def split_feature_states():
+
+    all_states = \
+        all_feature_states()
+
+    training = []
+
+    generalization = []
+
+    for features in all_states:
+
+        total = (
+            features["size"]
+            +
+            features["speed"]
+            +
+            features["energy"]
         )
+
+        if total % 2 == 0:
+
+            training.append(
+                features
+            )
+
+        else:
+
+            generalization.append(
+                features
+            )
+
+    return (
+        training,
+        generalization
+    )
 
 
 def evaluate(
@@ -348,51 +537,54 @@ def evaluate(
     progress_callback=None
 ):
 
-    rng = random.Random(seed)
+    rng = random.Random(
+        seed
+    )
 
     total_reward = 0.0
 
     correct = 0
 
-    for index in range(episodes):
+    for index in range(
+        episodes
+    ):
 
-        size, speed, energy = \
-            rng.choice(feature_pool)
+        features = dict(
+            rng.choice(
+                feature_pool
+            )
+        )
 
-        state = environment.features_to_state(
-            size,
-            speed,
-            energy
+        state = environment.state_name(
+            features
         )
 
         action = agent.choose_action(
-            state,
+            features,
             epsilon,
             rng
         )
 
         reward = environment.reward(
-            size,
-            speed,
-            energy,
+            features,
             action
         )
 
         total_reward += reward
 
         optimal = environment.optimal_action(
-            size,
-            speed,
-            energy
+            features
         )
 
         if action == optimal:
+
             correct += 1
 
         if learn:
 
             agent.learn(
                 state,
+                features,
                 action,
                 reward,
                 source
@@ -400,7 +592,8 @@ def evaluate(
 
         if (
             progress_callback
-            and (
+            and
+            (
                 index == episodes - 1
                 or index % 10 == 0
             )
@@ -414,7 +607,8 @@ def evaluate(
 
     return {
 
-        "episodes": episodes,
+        "episodes":
+            episodes,
 
         "average_reward":
             total_reward / episodes,
@@ -436,9 +630,19 @@ def run_learning_benchmark(
     progress_callback=None
 ):
 
-    memory = Memory()
+    # ========================================================
+    # ذاكرة مستقلة للاختبار
+    # ========================================================
 
-    agent = LearningAgent(
+    memory = Memory(
+        filename=(
+            "elsadigai_benchmark_memory.json"
+        )
+    )
+
+    memory.clear()
+
+    agent = FeatureLearningAgent(
         memory
     )
 
@@ -448,47 +652,10 @@ def run_learning_benchmark(
         seed + 1
     )
 
-    # ========================================================
-    # مجموعة التدريب
-    # ========================================================
-
-    all_states = []
-
-    for size in [0, 1, 2]:
-
-        for speed in [0, 1, 2]:
-
-            for energy in [0, 1, 2]:
-
-                all_states.append(
-                    (
-                        size,
-                        speed,
-                        energy
-                    )
-                )
-
-    # ========================================================
-    # حالات التدريب
-    # ========================================================
-
-    training_features = [
-        state
-        for state in all_states
-        if sum(state) % 2 == 0
-    ]
-
-    # ========================================================
-    # حالات التعميم
-    #
-    # هذه الحالات لم تظهر أثناء التدريب.
-    # ========================================================
-
-    generalization_features = [
-        state
-        for state in all_states
-        if sum(state) % 2 == 1
-    ]
+    (
+        training_features,
+        generalization_features
+    ) = split_feature_states()
 
     # ========================================================
     # BEFORE
@@ -564,40 +731,45 @@ def run_learning_benchmark(
         before["average_reward"]
     )
 
-    if before["average_reward"] != 0:
+    reward_improvement_pct = (
 
-        reward_improvement_pct = (
-            reward_delta
-            /
+        reward_delta
+        /
+        max(
             abs(
                 before["average_reward"]
-            )
-        ) * 100.0
+            ),
+            1e-12
+        )
 
-    else:
-
-        reward_improvement_pct = 0.0
+    ) * 100.0
 
     accuracy_improvement_pp = (
+
         after["best_action_rate"]
         -
         before["best_action_rate"]
+
     ) * 100.0
 
     learned = (
+
         reward_delta > 0
         and
         after["best_action_rate"]
         >
         before["best_action_rate"]
+
     )
 
     generalized = (
+
         generalization[
             "best_action_rate"
         ]
         >=
         0.50
+
     )
 
     if learned and generalized:
@@ -626,11 +798,14 @@ def run_learning_benchmark(
 
     return {
 
-        "before": before,
+        "before":
+            before,
 
-        "training": training,
+        "training":
+            training,
 
-        "after": after,
+        "after":
+            after,
 
         "generalization":
             generalization,
@@ -720,38 +895,7 @@ def memory_summary(
     return {
 
         "experiences":
-            memory.count(),
-
-        "sources": {
-
-            "normal":
-                sum(
-                    e.get("source")
-                    == "normal"
-                    for e in memory.experiences
-                ),
-
-            "before":
-                sum(
-                    e.get("source")
-                    == "before"
-                    for e in memory.experiences
-                ),
-
-            "training":
-                sum(
-                    e.get("source")
-                    == "training"
-                    for e in memory.experiences
-                ),
-
-            "generalization":
-                sum(
-                    e.get("source")
-                    == "generalization"
-                    for e in memory.experiences
-                )
-        }
+            memory.count()
     }
 
 
@@ -760,11 +904,11 @@ if __name__ == "__main__":
     print("=" * 60)
 
     print(
-        "ELSADIGAI v1.2"
+        "ELSADIGAI v1.3"
     )
 
     print(
-        "STRUCTURED GENERALIZATION TEST"
+        "FEATURE LEARNING + GENERALIZATION"
     )
 
     print("=" * 60)
@@ -823,7 +967,7 @@ if __name__ == "__main__":
 
     print()
 
-    print("التعميم الحقيقي:")
+    print("التعميم:")
 
     print(
         "Reward =",
@@ -849,12 +993,12 @@ if __name__ == "__main__":
     print()
 
     print(
-        "عدد حالات التدريب:",
+        "حالات التدريب:",
         report["training_states"]
     )
 
     print(
-        "عدد حالات التعميم:",
+        "حالات التعميم:",
         report["generalization_states"]
     )
 
@@ -889,13 +1033,4 @@ if __name__ == "__main__":
         report["verdict"]
     )
 
-    path = save_benchmark_report(
-        report
-    )
-
-    print()
-
-    print(
-        "تم حفظ التقرير:",
-        path
-    )
+    print("=" * 60)
