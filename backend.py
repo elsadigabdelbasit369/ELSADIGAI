@@ -1,25 +1,49 @@
 import random
 import json
 import math
-import os
 from statistics import mean, stdev
 
 
-ACTIONS = ["explore", "observe", "learn"]
-FEATURES = ["size", "speed", "energy"]
+# ============================================================
+# ELSADIGAI v2.2
+# Feature Learning + True Held-Out Generalization
+# ============================================================
 
+ACTIONS = [
+    "explore",
+    "observe",
+    "learn"
+]
+
+FEATURES = [
+    "size",
+    "speed",
+    "energy"
+]
+
+
+# ============================================================
+# MEMORY
+# ============================================================
 
 class Memory:
-    def __init__(self, filename="elsadigai_v2_memory.json"):
-        self.filename = filename
+
+    def __init__(self):
         self.data = []
 
-    def add(self, state, action, reward, prediction):
+    def add(
+        self,
+        state,
+        action,
+        reward,
+        prediction
+    ):
+
         self.data.append({
-            "state": state,
+            "state": dict(state),
             "action": action,
-            "reward": reward,
-            "prediction": prediction
+            "reward": float(reward),
+            "prediction": float(prediction)
         })
 
     def count(self):
@@ -29,18 +53,34 @@ class Memory:
         self.data = []
 
 
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
 class Environment:
+
     def __init__(self, seed=777):
+
         self.rng = random.Random(seed)
 
+    # --------------------------------------------------------
+    # Create random state
+    # --------------------------------------------------------
+
     def create_state(self):
+
         return {
             "size": self.rng.randint(0, 2),
             "speed": self.rng.randint(0, 2),
             "energy": self.rng.randint(0, 2)
         }
 
+    # --------------------------------------------------------
+    # Hidden rule
+    # --------------------------------------------------------
+
     def optimal_action(self, state):
+
         score = (
             state["size"]
             + state["speed"]
@@ -55,67 +95,231 @@ class Environment:
 
         return "learn"
 
+    # --------------------------------------------------------
+    # Reward
+    # --------------------------------------------------------
+
     def reward(self, state, action):
-        correct = self.optimal_action(state)
 
-        if action == correct:
-            return 0.8 + self.rng.uniform(0.0, 0.2)
+        correct_action = self.optimal_action(
+            state
+        )
 
-        return self.rng.uniform(0.0, 0.3)
+        if action == correct_action:
 
-
-class LearningBrain:
-    """
-    يتعلم العلاقة بين الخصائص والأفعال.
-    لا يحفظ الحالة كاملة كقاعدة منفردة.
-    """
-
-    def __init__(self, memory):
-        self.memory = memory
-        self.values = {}
-        self.counts = {}
-        self.learning_rate = 0.15
-
-    def key(self, feature, value, action):
-        return f"{feature}:{value}:{action}"
-
-    def get_value(self, feature, value, action):
-        key = self.key(feature, value, action)
-        return self.values.get(key, 0.0)
-
-    def predict(self, state, action):
-        scores = []
-
-        for feature in FEATURES:
-            value = state[feature]
-
-            scores.append(
-                self.get_value(
-                    feature,
-                    value,
-                    action
+            return (
+                0.8
+                + self.rng.uniform(
+                    0.0,
+                    0.2
                 )
             )
 
-        return sum(scores) / len(scores)
+        return self.rng.uniform(
+            0.0,
+            0.3
+        )
+
+
+# ============================================================
+# STATE GENERATION
+# ============================================================
+
+def all_states():
+
+    states = []
+
+    for size in range(3):
+
+        for speed in range(3):
+
+            for energy in range(3):
+
+                states.append({
+                    "size": size,
+                    "speed": speed,
+                    "energy": energy
+                })
+
+    return states
+
+
+def split_states():
+
+    """
+    تقسيم الحالات بطريقة تمنع تسرب نفس التركيبة
+    من التدريب إلى اختبار التعميم.
+
+    التدريب:
+        مجموع الخصائص زوجي
+
+    التعميم:
+        مجموع الخصائص فردي
+    """
+
+    training_states = []
+    generalization_states = []
+
+    for state in all_states():
+
+        total = (
+            state["size"]
+            + state["speed"]
+            + state["energy"]
+        )
+
+        if total % 2 == 0:
+
+            training_states.append(state)
+
+        else:
+
+            generalization_states.append(state)
+
+    return (
+        training_states,
+        generalization_states
+    )
+
+
+# ============================================================
+# LEARNING BRAIN
+# ============================================================
+
+class LearningBrain:
+
+    def __init__(self, memory):
+
+        self.memory = memory
+
+        # قيمة كل خاصية مع كل فعل
+        self.values = {}
+
+        # عدد مرات التعلم
+        self.counts = {}
+
+        self.learning_rate = 0.15
+
+    # --------------------------------------------------------
+    # Knowledge key
+    # --------------------------------------------------------
+
+    def key(
+        self,
+        feature,
+        value,
+        action
+    ):
+
+        return (
+            f"{feature}:"
+            f"{value}:"
+            f"{action}"
+        )
+
+    # --------------------------------------------------------
+    # Get knowledge
+    # --------------------------------------------------------
+
+    def get_value(
+        self,
+        feature,
+        value,
+        action
+    ):
+
+        key = self.key(
+            feature,
+            value,
+            action
+        )
+
+        return self.values.get(
+            key,
+            0.0
+        )
+
+    # --------------------------------------------------------
+    # Predict action reward
+    # --------------------------------------------------------
+
+    def predict(
+        self,
+        state,
+        action
+    ):
+
+        scores = []
+
+        for feature in FEATURES:
+
+            value = state[feature]
+
+            score = self.get_value(
+                feature,
+                value,
+                action
+            )
+
+            scores.append(score)
+
+        if not scores:
+            return 0.0
+
+        return (
+            sum(scores)
+            / len(scores)
+        )
+
+    # --------------------------------------------------------
+    # Predict all actions
+    # --------------------------------------------------------
 
     def predictions(self, state):
-        return {
-            action: self.predict(state, action)
-            for action in ACTIONS
-        }
 
-    def choose_action(self, state, epsilon=0.0):
+        result = {}
 
-        if random.random() < epsilon:
-            return random.choice(ACTIONS)
+        for action in ACTIONS:
 
-        predictions = self.predictions(state)
+            result[action] = self.predict(
+                state,
+                action
+            )
+
+        return result
+
+    # --------------------------------------------------------
+    # Choose action
+    # --------------------------------------------------------
+
+    def choose_action(
+        self,
+        state,
+        epsilon=0.20,
+        rng=None
+    ):
+
+        if rng is None:
+            rng = random
+
+        if rng.random() < epsilon:
+
+            return rng.choice(
+                ACTIONS
+            )
+
+        predictions = self.predictions(
+            state
+        )
 
         return max(
             predictions,
             key=predictions.get
         )
+
+    # --------------------------------------------------------
+    # Learn
+    # --------------------------------------------------------
 
     def learn(
         self,
@@ -124,7 +328,11 @@ class LearningBrain:
         reward,
         prediction
     ):
-        error = reward - prediction
+
+        error = (
+            reward
+            - prediction
+        )
 
         for feature in FEATURES:
 
@@ -141,16 +349,25 @@ class LearningBrain:
                 0.0
             )
 
-            self.values[key] = (
+            new_value = (
                 old_value
-                + self.learning_rate * error
+                + self.learning_rate
+                * error
+            )
+
+            self.values[key] = (
+                new_value
             )
 
             self.counts[key] = (
-                self.counts.get(key, 0)
+                self.counts.get(
+                    key,
+                    0
+                )
                 + 1
             )
 
+        # حفظ التجربة
         self.memory.add(
             state,
             action,
@@ -158,74 +375,57 @@ class LearningBrain:
             prediction
         )
 
+    # --------------------------------------------------------
+    # Knowledge size
+    # --------------------------------------------------------
+
     def knowledge_size(self):
-        return len(self.values)
 
-
-def evaluate(
-    brain,
-    environment,
-    episodes=100
-):
-    total_reward = 0.0
-    correct = 0
-
-    for _ in range(episodes):
-
-        state = environment.create_state()
-
-        predictions = brain.predictions(
-            state
+        return len(
+            self.values
         )
 
-        action = max(
-            predictions,
-            key=predictions.get
-        )
 
-        optimal = environment.optimal_action(
-            state
-        )
-
-        reward = environment.reward(
-            state,
-            action
-        )
-
-        total_reward += reward
-
-        if action == optimal:
-            correct += 1
-
-    return {
-        "reward": total_reward / episodes,
-        "accuracy": (
-            correct / episodes
-        ) * 100
-    }
-
+# ============================================================
+# TRAINING
+# ============================================================
 
 def train(
     brain,
     environment,
-    episodes=500
+    training_states,
+    episodes,
+    seed
 ):
+
+    rng = random.Random(seed)
+
     rewards = []
 
     for _ in range(episodes):
 
-        state = environment.create_state()
+        # نختار حالة من حالات التدريب فقط
+        state = dict(
+            rng.choice(
+                training_states
+            )
+        )
 
-        predictions = brain.predictions(
-            state
+        predictions = (
+            brain.predictions(
+                state
+            )
         )
 
         action = brain.choose_action(
             state,
-            epsilon=0.20
+            epsilon=0.20,
+            rng=rng
         )
 
-        prediction = predictions[action]
+        prediction = predictions[
+            action
+        ]
 
         reward = environment.reward(
             state,
@@ -239,10 +439,131 @@ def train(
             prediction
         )
 
-        rewards.append(reward)
+        rewards.append(
+            reward
+        )
 
     return rewards
 
+
+# ============================================================
+# EVALUATION
+# ============================================================
+
+def evaluate(
+    brain,
+    environment,
+    states,
+    episodes,
+    seed
+):
+
+    rng = random.Random(seed)
+
+    total_reward = 0.0
+
+    correct = 0
+
+    for _ in range(episodes):
+
+        state = dict(
+            rng.choice(
+                states
+            )
+        )
+
+        predictions = (
+            brain.predictions(
+                state
+            )
+        )
+
+        action = max(
+            predictions,
+            key=predictions.get
+        )
+
+        correct_action = (
+            environment.optimal_action(
+                state
+            )
+        )
+
+        reward = environment.reward(
+            state,
+            action
+        )
+
+        total_reward += reward
+
+        if action == correct_action:
+
+            correct += 1
+
+    return {
+
+        "reward":
+            total_reward / episodes,
+
+        "accuracy":
+            (
+                correct
+                / episodes
+            ) * 100
+    }
+
+
+# ============================================================
+# CONFIDENCE INTERVAL
+# ============================================================
+
+def confidence_interval(values):
+
+    if not values:
+
+        return {
+            "low": 0.0,
+            "high": 0.0
+        }
+
+    if len(values) < 2:
+
+        value = values[0]
+
+        return {
+            "low": value,
+            "high": value
+        }
+
+    average = mean(values)
+
+    deviation = stdev(values)
+
+    standard_error = (
+        deviation
+        / math.sqrt(
+            len(values)
+        )
+    )
+
+    margin = (
+        1.96
+        * standard_error
+    )
+
+    return {
+
+        "low":
+            average - margin,
+
+        "high":
+            average + margin
+    }
+
+
+# ============================================================
+# SINGLE EXPERIMENT
+# ============================================================
 
 def run_single_experiment(
     seed,
@@ -254,33 +575,70 @@ def run_single_experiment(
 
     memory = Memory()
 
-    brain = LearningBrain(memory)
+    brain = LearningBrain(
+        memory
+    )
 
-    environment = Environment(seed)
+    environment = Environment(
+        seed=seed
+    )
+
+    (
+        training_states,
+        generalization_states
+    ) = split_states()
+
+    # --------------------------------------------------------
+    # BEFORE
+    # --------------------------------------------------------
 
     before = evaluate(
         brain,
         environment,
-        before_episodes
+        training_states,
+        before_episodes,
+        seed + 1000
     )
+
+    # --------------------------------------------------------
+    # TRAIN
+    # --------------------------------------------------------
 
     training_rewards = train(
         brain,
         environment,
-        training_episodes
+        training_states,
+        training_episodes,
+        seed + 2000
     )
+
+    # --------------------------------------------------------
+    # AFTER
+    # --------------------------------------------------------
 
     after = evaluate(
         brain,
         environment,
-        after_episodes
+        training_states,
+        after_episodes,
+        seed + 3000
     )
+
+    # --------------------------------------------------------
+    # TRUE GENERALIZATION
+    # --------------------------------------------------------
 
     generalization = evaluate(
         brain,
         environment,
-        generalization_episodes
+        generalization_states,
+        generalization_episodes,
+        seed + 4000
     )
+
+    # --------------------------------------------------------
+    # Improvement
+    # --------------------------------------------------------
 
     if before["reward"] != 0:
 
@@ -293,6 +651,7 @@ def run_single_experiment(
         ) * 100
 
     else:
+
         reward_improvement = 0.0
 
     accuracy_improvement = (
@@ -301,7 +660,9 @@ def run_single_experiment(
     )
 
     return {
-        "seed": seed,
+
+        "seed":
+            seed,
 
         "before_reward":
             before["reward"],
@@ -328,33 +689,29 @@ def run_single_experiment(
             accuracy_improvement,
 
         "training_reward":
-            mean(training_rewards),
+            (
+                mean(training_rewards)
+                if training_rewards
+                else 0.0
+            ),
 
         "knowledge_size":
-            brain.knowledge_size()
+            brain.knowledge_size(),
+
+        "memory_size":
+            memory.count(),
+
+        "training_state_count":
+            len(training_states),
+
+        "generalization_state_count":
+            len(generalization_states)
     }
 
 
-def confidence_interval(values):
-
-    if len(values) < 2:
-        return {
-            "low": mean(values),
-            "high": mean(values)
-        }
-
-    avg = mean(values)
-    sd = stdev(values)
-
-    se = sd / math.sqrt(len(values))
-
-    margin = 1.96 * se
-
-    return {
-        "low": avg - margin,
-        "high": avg + margin
-    }
-
+# ============================================================
+# FULL BENCHMARK
+# ============================================================
 
 def run_learning_benchmark(
     before_episodes=100,
@@ -364,13 +721,21 @@ def run_learning_benchmark(
     seed=777
 ):
 
-    results = []
-
     experiments = 30
 
-    for i in range(experiments):
+    results = []
 
-        current_seed = seed + i
+    # --------------------------------------------------------
+    # Run 30 independent experiments
+    # --------------------------------------------------------
+
+    for i in range(
+        experiments
+    ):
+
+        current_seed = (
+            seed + i
+        )
 
         result = run_single_experiment(
             current_seed,
@@ -380,15 +745,16 @@ def run_learning_benchmark(
             generalization_episodes
         )
 
-        results.append(result)
+        results.append(
+            result
+        )
+
+    # --------------------------------------------------------
+    # Collect metrics
+    # --------------------------------------------------------
 
     before_rewards = [
         r["before_reward"]
-        for r in results
-    ]
-
-    after_rewards = [
-        r["after_reward"]
         for r in results
     ]
 
@@ -397,8 +763,18 @@ def run_learning_benchmark(
         for r in results
     ]
 
+    after_rewards = [
+        r["after_reward"]
+        for r in results
+    ]
+
     after_accuracy = [
         r["after_accuracy"]
+        for r in results
+    ]
+
+    generalization_rewards = [
+        r["generalization_reward"]
         for r in results
     ]
 
@@ -417,146 +793,281 @@ def run_learning_benchmark(
         for r in results
     ]
 
-    generalization_rewards = [
-        r["generalization_reward"]
+    knowledge_sizes = [
+        r["knowledge_size"]
         for r in results
     ]
 
-    ci_generalization = confidence_interval(
-        generalization_accuracy
+    memory_sizes = [
+        r["memory_size"]
+        for r in results
+    ]
+
+    training_rewards = [
+        r["training_reward"]
+        for r in results
+    ]
+
+    # --------------------------------------------------------
+    # Generalization statistics
+    # --------------------------------------------------------
+
+    generalization_average = (
+        mean(
+            generalization_accuracy
+        )
     )
 
-    successful_generalization = sum(
+    generalization_sd = (
+        stdev(
+            generalization_accuracy
+        )
+        if len(
+            generalization_accuracy
+        ) > 1
+        else 0.0
+    )
+
+    generalization_ci = (
+        confidence_interval(
+            generalization_accuracy
+        )
+    )
+
+    successful_runs = sum(
+
         1
-        for value in generalization_accuracy
-        if value >= 50
+
+        for value
+        in generalization_accuracy
+
+        if value >= 50.0
     )
 
-    report = {
+    # --------------------------------------------------------
+    # Training / generalization states
+    # --------------------------------------------------------
 
-        "version": "ELSADIGAI v2.1",
+    (
+        training_states,
+        generalization_states
+    ) = split_states()
 
-        "experiments": experiments,
+    # --------------------------------------------------------
+    # Verdict
+    # --------------------------------------------------------
 
-        "before": {
-            "reward": mean(before_rewards),
-            "accuracy": mean(before_accuracy)
-        },
+    average_before_accuracy = mean(
+        before_accuracy
+    )
 
-        "after": {
-            "reward": mean(after_rewards),
-            "accuracy": mean(after_accuracy)
-        },
-
-        "generalization": {
-            "reward": mean(generalization_rewards),
-            "accuracy": mean(generalization_accuracy),
-
-            "minimum_accuracy":
-                min(generalization_accuracy),
-
-            "maximum_accuracy":
-                max(generalization_accuracy),
-
-            "standard_deviation":
-                (
-                    stdev(generalization_accuracy)
-                    if len(generalization_accuracy) > 1
-                    else 0.0
-                ),
-
-            "confidence_interval_95": ci_generalization,
-
-            "successful_runs":
-                successful_generalization,
-
-            "success_rate":
-                (
-                    successful_generalization
-                    / experiments
-                ) * 100
-        },
-
-        "improvement": {
-            "reward_percent":
-                mean(reward_improvements),
-
-            "accuracy_points":
-                mean(accuracy_improvements)
-        },
-
-        "knowledge": {
-            "average_size":
-                mean(
-                    r["knowledge_size"]
-                    for r in results
-                )
-        },
-
-        "training": {
-            "episodes":
-                training_episodes,
-
-            "average_reward":
-                mean(
-                    r["training_reward"]
-                    for r in results
-                )
-        },
-
-        "individual_results": results
-    }
+    average_after_accuracy = mean(
+        after_accuracy
+    )
 
     if (
-        report["after"]["accuracy"]
-        > report["before"]["accuracy"]
+        average_after_accuracy
+        > average_before_accuracy
         and
-        report["generalization"]["accuracy"]
-        >= 50
+        generalization_average
+        >= 50.0
     ):
 
-        report["verdict"] = (
+        verdict = (
             "تعلم وتعميم قابلان للقياس"
         )
 
     elif (
-        report["after"]["accuracy"]
-        > report["before"]["accuracy"]
+        average_after_accuracy
+        > average_before_accuracy
     ):
 
-        report["verdict"] = (
+        verdict = (
             "تعلم قابل للقياس "
             "مع تعميم محدود"
         )
 
     else:
 
-        report["verdict"] = (
+        verdict = (
             "لم يظهر تعلم واضح"
         )
+
+    # --------------------------------------------------------
+    # Final report
+    # --------------------------------------------------------
+
+    report = {
+
+        "version":
+            "ELSADIGAI v2.2",
+
+        "experiments":
+            experiments,
+
+        "before": {
+
+            "reward":
+                mean(
+                    before_rewards
+                ),
+
+            "accuracy":
+                mean(
+                    before_accuracy
+                )
+        },
+
+        "after": {
+
+            "reward":
+                mean(
+                    after_rewards
+                ),
+
+            "accuracy":
+                mean(
+                    after_accuracy
+                )
+        },
+
+        "generalization": {
+
+            "reward":
+                mean(
+                    generalization_rewards
+                ),
+
+            "accuracy":
+                generalization_average,
+
+            "standard_deviation":
+                generalization_sd,
+
+            "minimum_accuracy":
+                min(
+                    generalization_accuracy
+                ),
+
+            "maximum_accuracy":
+                max(
+                    generalization_accuracy
+                ),
+
+            "confidence_interval_95":
+                generalization_ci,
+
+            "successful_runs":
+                successful_runs,
+
+            "success_rate":
+                (
+                    successful_runs
+                    / experiments
+                ) * 100
+        },
+
+        "improvement": {
+
+            "reward_percent":
+                mean(
+                    reward_improvements
+                ),
+
+            "accuracy_points":
+                mean(
+                    accuracy_improvements
+                )
+        },
+
+        "training": {
+
+            "episodes":
+                training_episodes,
+
+            "average_reward":
+                mean(
+                    training_rewards
+                )
+        },
+
+        "knowledge": {
+
+            "average_size":
+                mean(
+                    knowledge_sizes
+                )
+        },
+
+        "memory": {
+
+            "average_size":
+                mean(
+                    memory_sizes
+                )
+        },
+
+        "state_space": {
+
+            "total_states":
+                len(
+                    all_states()
+                ),
+
+            "training_states":
+                len(
+                    training_states
+                ),
+
+            "generalization_states":
+                len(
+                    generalization_states
+                )
+        },
+
+        "verdict":
+            verdict,
+
+        "individual_results":
+            results
+    }
 
     return report
 
 
-def save_benchmark_report(report):
+# ============================================================
+# SAVE REPORT
+# ============================================================
+
+def save_benchmark_report(
+    report
+):
 
     with open(
-        "elsadigai_v2_1_report.json",
+        "elsadigai_v2_2_report.json",
         "w",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
         json.dump(
             report,
-            f,
+            file,
             ensure_ascii=False,
             indent=2
         )
 
 
+# ============================================================
+# MAIN
+# ============================================================
+
 if __name__ == "__main__":
 
     report = run_learning_benchmark()
+
+    save_benchmark_report(
+        report
+    )
 
     print(
         json.dumps(
