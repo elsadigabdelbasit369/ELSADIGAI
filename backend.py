@@ -197,24 +197,8 @@ class LearningAgent:
         if rng is None:
             rng = random.Random()
 
-        unknown = [
-            action
-            for action in ACTIONS
-            if self.counts.get(
-                self.key(
-                    state,
-                    action
-                ),
-                0
-            ) == 0
-        ]
-
-        # الاستكشاف
-        if unknown and rng.random() < epsilon:
-            return rng.choice(unknown)
-
-        # الاستكشاف العشوائي
         if rng.random() < epsilon:
+
             return rng.choice(ACTIONS)
 
         scores = {
@@ -244,65 +228,87 @@ class LearningAgent:
             best_actions
         )
 
-    def best_known_action(self, state):
 
-        known = [
-            action
-            for action in ACTIONS
-            if self.counts.get(
-                self.key(
-                    state,
-                    action
-                ),
-                0
-            ) > 0
-        ]
-
-        if not known:
-            return None
-
-        return max(
-            known,
-            key=lambda action:
-                self.values.get(
-                    self.key(
-                        state,
-                        action
-                    ),
-                    0.0
-                )
-        )
-
-
-class LearningEnvironment:
+class StructuredEnvironment:
 
     """
-    بيئة اختبار التعلم.
+    بيئة اختبار تعميم حقيقية.
 
-    الوكيل لا يرى الفعل الأفضل.
-    البيئة فقط تستخدمه داخليًا لحساب المكافأة.
+    الوكيل لا يرى القاعدة المخفية.
+
+    القاعدة تعتمد على خصائص الحالة،
+    وليس على اسم الحالة.
     """
 
     def __init__(self, seed=2026):
 
         self.rng = random.Random(seed)
 
-        self.optimal = {
-            "A": "explore",
-            "B": "observe",
-            "C": "learn",
-            "D": "explore",
-            "E": "learn",
-            "F": "observe",
-            "G": "learn",
-            "H": "explore"
-        }
+        self.actions = ACTIONS
 
-    def reward(self, state, action):
+    def features_to_state(
+        self,
+        size,
+        speed,
+        energy
+    ):
 
-        if action == self.optimal[state]:
+        return (
+            f"S={size};"
+            f"V={speed};"
+            f"E={energy}"
+        )
+
+    def optimal_action(
+        self,
+        size,
+        speed,
+        energy
+    ):
+
+        # القاعدة المخفية:
+        #
+        # الحجم + السرعة + الطاقة
+        # تحدد الفعل الأفضل.
+        #
+        # الوكيل لا يحصل على هذه القاعدة.
+
+        score = (
+            size
+            +
+            speed
+            -
+            energy
+        )
+
+        if score >= 2:
+            return "explore"
+
+        if score <= -1:
+            return "observe"
+
+        return "learn"
+
+    def reward(
+        self,
+        size,
+        speed,
+        energy,
+        action
+    ):
+
+        correct_action = self.optimal_action(
+            size,
+            speed,
+            energy
+        )
+
+        if action == correct_action:
+
             mean = 0.90
+
         else:
+
             mean = 0.20
 
         noise = self.rng.uniform(
@@ -310,31 +316,31 @@ class LearningEnvironment:
             0.10
         )
 
-        reward = mean + noise
-
         return max(
             0.0,
             min(
                 1.0,
-                reward
+                mean + noise
             )
         )
 
-    def random_state(self, states=None):
+    def random_features(
+        self,
+        rng
+    ):
 
-        if states is None:
-            states = list(
-                self.optimal.keys()
-            )
-
-        return self.rng.choice(states)
+        return (
+            rng.choice([0, 1, 2]),
+            rng.choice([0, 1, 2]),
+            rng.choice([0, 1, 2])
+        )
 
 
 def evaluate(
     agent,
     environment,
     episodes,
-    states,
+    feature_pool,
     seed,
     epsilon,
     learn,
@@ -345,11 +351,19 @@ def evaluate(
     rng = random.Random(seed)
 
     total_reward = 0.0
+
     correct = 0
 
     for index in range(episodes):
 
-        state = rng.choice(states)
+        size, speed, energy = \
+            rng.choice(feature_pool)
+
+        state = environment.features_to_state(
+            size,
+            speed,
+            energy
+        )
 
         action = agent.choose_action(
             state,
@@ -358,16 +372,25 @@ def evaluate(
         )
 
         reward = environment.reward(
-            state,
+            size,
+            speed,
+            energy,
             action
         )
 
         total_reward += reward
 
-        if action == environment.optimal[state]:
+        optimal = environment.optimal_action(
+            size,
+            speed,
+            energy
+        )
+
+        if action == optimal:
             correct += 1
 
         if learn:
+
             agent.learn(
                 state,
                 action,
@@ -382,6 +405,7 @@ def evaluate(
                 or index % 10 == 0
             )
         ):
+
             progress_callback(
                 index + 1,
                 episodes,
@@ -389,11 +413,15 @@ def evaluate(
             )
 
     return {
+
         "episodes": episodes,
+
         "average_reward":
             total_reward / episodes,
+
         "best_action_rate":
             correct / episodes,
+
         "total_reward":
             total_reward
     }
@@ -410,21 +438,67 @@ def run_learning_benchmark(
 
     memory = Memory()
 
-    agent = LearningAgent(memory)
+    agent = LearningAgent(
+        memory
+    )
 
     agent.reset_learning()
 
-    training_states = list("ABCDEFGH")
+    environment = StructuredEnvironment(
+        seed + 1
+    )
 
-    # ==========================
+    # ========================================================
+    # مجموعة التدريب
+    # ========================================================
+
+    all_states = []
+
+    for size in [0, 1, 2]:
+
+        for speed in [0, 1, 2]:
+
+            for energy in [0, 1, 2]:
+
+                all_states.append(
+                    (
+                        size,
+                        speed,
+                        energy
+                    )
+                )
+
+    # ========================================================
+    # حالات التدريب
+    # ========================================================
+
+    training_features = [
+        state
+        for state in all_states
+        if sum(state) % 2 == 0
+    ]
+
+    # ========================================================
+    # حالات التعميم
+    #
+    # هذه الحالات لم تظهر أثناء التدريب.
+    # ========================================================
+
+    generalization_features = [
+        state
+        for state in all_states
+        if sum(state) % 2 == 1
+    ]
+
+    # ========================================================
     # BEFORE
-    # ==========================
+    # ========================================================
 
     before = evaluate(
         agent,
-        LearningEnvironment(seed + 1),
+        environment,
         before_episodes,
-        training_states,
+        training_features,
         seed + 10,
         epsilon=1.0,
         learn=False,
@@ -432,15 +506,15 @@ def run_learning_benchmark(
         progress_callback=progress_callback
     )
 
-    # ==========================
+    # ========================================================
     # TRAINING
-    # ==========================
+    # ========================================================
 
     training = evaluate(
         agent,
-        LearningEnvironment(seed + 2),
+        environment,
         training_episodes,
-        training_states,
+        training_features,
         seed + 20,
         epsilon=0.20,
         learn=True,
@@ -448,15 +522,15 @@ def run_learning_benchmark(
         progress_callback=progress_callback
     )
 
-    # ==========================
+    # ========================================================
     # AFTER
-    # ==========================
+    # ========================================================
 
     after = evaluate(
         agent,
-        LearningEnvironment(seed + 3),
+        environment,
         after_episodes,
-        training_states,
+        training_features,
         seed + 30,
         epsilon=0.0,
         learn=False,
@@ -464,25 +538,15 @@ def run_learning_benchmark(
         progress_callback=progress_callback
     )
 
-    # ==========================
+    # ========================================================
     # GENERALIZATION
-    # ==========================
-
-    generalization_environment = \
-        LearningEnvironment(seed + 4)
-
-    generalization_environment.optimal.update({
-        "I": "observe",
-        "J": "learn",
-        "K": "explore",
-        "L": "observe"
-    })
+    # ========================================================
 
     generalization = evaluate(
         agent,
-        generalization_environment,
+        environment,
         generalization_episodes,
-        list("IJKL"),
+        generalization_features,
         seed + 40,
         epsilon=0.0,
         learn=False,
@@ -490,9 +554,9 @@ def run_learning_benchmark(
         progress_callback=progress_callback
     )
 
-    # ==========================
+    # ========================================================
     # المقارنة
-    # ==========================
+    # ========================================================
 
     reward_delta = (
         after["average_reward"]
@@ -538,19 +602,27 @@ def run_learning_benchmark(
 
     if learned and generalized:
 
-        verdict = "🚀 تعلم + تعميم"
+        verdict = (
+            "🚀 تعلم + تعميم حقيقي"
+        )
 
     elif learned:
 
-        verdict = "✅ تعلم قابل للقياس"
+        verdict = (
+            "✅ تعلم قابل للقياس"
+        )
 
-    elif reward_delta > 0:
+    elif generalized:
 
-        verdict = "⚠️ تحسن محدود"
+        verdict = (
+            "🌐 تعميم بدون تحسن واضح"
+        )
 
     else:
 
-        verdict = "❌ لم يظهر تعلم واضح"
+        verdict = (
+            "❌ لم يظهر تعلم أو تعميم واضح"
+        )
 
     return {
 
@@ -572,11 +644,20 @@ def run_learning_benchmark(
         "accuracy_improvement_pp":
             accuracy_improvement_pp,
 
-        "learned": learned,
+        "learned":
+            learned,
 
-        "generalized": generalized,
+        "generalized":
+            generalized,
 
-        "verdict": verdict,
+        "training_states":
+            len(training_features),
+
+        "generalization_states":
+            len(generalization_features),
+
+        "verdict":
+            verdict,
 
         "timestamp":
             datetime.now().isoformat(
@@ -630,7 +711,9 @@ def save_benchmark_report(
     return path
 
 
-def memory_summary(memory=None):
+def memory_summary(
+    memory=None
+):
 
     memory = memory or Memory()
 
@@ -660,23 +743,28 @@ def memory_summary(memory=None):
                     e.get("source")
                     == "training"
                     for e in memory.experiences
+                ),
+
+            "generalization":
+                sum(
+                    e.get("source")
+                    == "generalization"
+                    for e in memory.experiences
                 )
         }
     }
 
 
-# ============================================================
-# اختبار Backend مستقل
-# ============================================================
-
 if __name__ == "__main__":
 
     print("=" * 60)
 
-    print("ELSADIGAI v1.1 BACKEND")
+    print(
+        "ELSADIGAI v1.2"
+    )
 
     print(
-        "بدء اختبار التعلم..."
+        "STRUCTURED GENERALIZATION TEST"
     )
 
     print("=" * 60)
@@ -735,7 +823,7 @@ if __name__ == "__main__":
 
     print()
 
-    print("التعميم:")
+    print("التعميم الحقيقي:")
 
     print(
         "Reward =",
@@ -761,7 +849,19 @@ if __name__ == "__main__":
     print()
 
     print(
-        "التحسن:",
+        "عدد حالات التدريب:",
+        report["training_states"]
+    )
+
+    print(
+        "عدد حالات التعميم:",
+        report["generalization_states"]
+    )
+
+    print()
+
+    print(
+        "تحسن المكافأة:",
         round(
             report[
                 "reward_improvement_pct"
