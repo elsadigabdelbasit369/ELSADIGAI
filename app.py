@@ -1,480 +1,399 @@
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, jsonify, render_template_string
 from backend import run_learning_benchmark
 
-
 app = Flask(__name__)
-
 
 HTML = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-
 <head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <meta charset="UTF-8">
+<title>ELSADIGAI</title>
 
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1.0">
+<style>
 
-    <title>ELSADIGAI</title>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #0b1020;
+    color: white;
+}
 
-    <style>
+.container {
+    max-width: 900px;
+    margin: auto;
+    padding: 25px;
+}
 
-        body {
-            margin: 0;
-            background: #10141c;
-            color: #f1f5f9;
-            font-family: Arial, sans-serif;
-        }
+.header {
+    text-align: center;
+    margin-bottom: 30px;
+}
 
-        .container {
-            max-width: 700px;
-            margin: auto;
-            padding: 30px 18px;
-        }
+.header h1 {
+    font-size: 38px;
+    margin-bottom: 5px;
+}
 
-        h1 {
-            text-align: center;
-            color: #38bdf8;
-            font-size: 42px;
-            margin-bottom: 5px;
-        }
+.header p {
+    color: #aab3c5;
+}
 
-        .subtitle {
-            text-align: center;
-            color: #94a3b8;
-            margin-bottom: 30px;
-        }
+button {
+    display: block;
+    margin: 25px auto;
+    padding: 15px 30px;
+    border: none;
+    border-radius: 12px;
+    background: #2563eb;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+}
 
-        .card {
-            background: #181e29;
-            border-radius: 14px;
-            padding: 20px;
-            margin-bottom: 15px;
-        }
+button:hover {
+    background: #1d4ed8;
+}
 
-        .card h2 {
-            margin-top: 0;
-            color: #38bdf8;
-        }
+button:disabled {
+    opacity: 0.6;
+}
 
-        .value {
-            font-size: 28px;
-            font-weight: bold;
-        }
+.status {
+    text-align: center;
+    margin: 15px;
+}
 
-        button {
-            width: 100%;
-            padding: 15px;
-            border: none;
-            border-radius: 10px;
-            background: #38bdf8;
-            color: #10141c;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 10px;
-        }
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 15px;
+}
 
-        button:hover {
-            opacity: 0.85;
-        }
+.card {
+    background: #151c32;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 5px 20px rgba(0,0,0,.2);
+}
 
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+.card h2 {
+    margin-top: 0;
+}
 
-        .status {
-            text-align: center;
-            color: #94a3b8;
-            margin: 20px 0;
-        }
+.value {
+    font-size: 30px;
+    font-weight: bold;
+    margin: 10px 0;
+}
 
-        .success {
-            color: #22c55e;
-        }
+.small {
+    color: #9ca3af;
+}
 
-        .warning {
-            color: #f59e0b;
-        }
+.verdict {
+    margin-top: 25px;
+    padding: 20px;
+    background: #13233b;
+    border-radius: 15px;
+    text-align: center;
+    font-size: 20px;
+}
 
-        .error {
-            color: #ef4444;
-        }
+.error {
+    background: #451a1a;
+    padding: 15px;
+    border-radius: 10px;
+    color: #fecaca;
+}
 
-        .result {
-            display: none;
-        }
-
-        .metric {
-            display: flex;
-            justify-content: space-between;
-            border-bottom: 1px solid #293241;
-            padding: 10px 0;
-        }
-
-        .metric:last-child {
-            border-bottom: none;
-        }
-
-        .verdict {
-            text-align: center;
-            font-size: 24px;
-            font-weight: bold;
-            margin-top: 15px;
-        }
-
-        .footer {
-            text-align: center;
-            color: #64748b;
-            margin-top: 30px;
-            font-size: 13px;
-        }
-
-    </style>
-
+</style>
 </head>
-
 
 <body>
 
 <div class="container">
 
-    <h1>ELSADIGAI</h1>
+<div class="header">
 
-    <div class="subtitle">
-        Learning Intelligence System
-    </div>
+<h1>ELSADIGAI</h1>
 
+<p>Learning Intelligence System</p>
 
-    <div class="card">
-
-        <h2>🧠 النظام</h2>
-
-        <p>
-            نظام تجريبي لدراسة التعلم من التجربة
-            والذاكرة وتحسين اتخاذ القرار.
-        </p>
-
-        <p>
-            تجربة → مكافأة → ذاكرة → تعلم → قرار أفضل
-        </p>
-
-    </div>
-
-
-    <div class="card">
-
-        <h2>🧪 اختبار التعلم الحقيقي</h2>
-
-        <p>
-            سيقارن النظام بين الأداء قبل التعلم
-            وبعد التدريب، ثم يجري اختبار تعميم.
-        </p>
-
-        <button
-            id="runButton"
-            onclick="runTest()">
-
-            ▶ تشغيل الاختبار
-
-        </button>
-
-        <div
-            id="status"
-            class="status">
-
-            جاهز للاختبار
-
-        </div>
-
-    </div>
-
-
-    <div
-        id="result"
-        class="result">
-
-
-        <div class="card">
-
-            <h2>📊 قبل التعلم</h2>
-
-            <div class="metric">
-
-                <span>متوسط المكافأة</span>
-
-                <span
-                    id="beforeReward"
-                    class="value">
-                </span>
-
-            </div>
-
-            <div class="metric">
-
-                <span>دقة اختيار الفعل</span>
-
-                <span
-                    id="beforeAccuracy">
-                </span>
-
-            </div>
-
-        </div>
-
-
-        <div class="card">
-
-            <h2>📈 بعد التعلم</h2>
-
-            <div class="metric">
-
-                <span>متوسط المكافأة</span>
-
-                <span
-                    id="afterReward"
-                    class="value">
-                </span>
-
-            </div>
-
-            <div class="metric">
-
-                <span>دقة اختيار الفعل</span>
-
-                <span
-                    id="afterAccuracy">
-                </span>
-
-            </div>
-
-        </div>
-
-
-        <div class="card">
-
-            <h2>🌐 اختبار التعميم</h2>
-
-            <div class="metric">
-
-                <span>متوسط المكافأة</span>
-
-                <span
-                    id="generalizationReward"
-                    class="value">
-                </span>
-
-            </div>
-
-            <div class="metric">
-
-                <span>دقة التعميم</span>
-
-                <span
-                    id="generalizationAccuracy">
-                </span>
-
-            </div>
-
-        </div>
-
-
-        <div class="card">
-
-            <h2>📐 التحسن</h2>
-
-            <div class="metric">
-
-                <span>تحسن المكافأة</span>
-
-                <span
-                    id="rewardImprovement">
-                </span>
-
-            </div>
-
-            <div class="metric">
-
-                <span>تحسن الدقة</span>
-
-                <span
-                    id="accuracyImprovement">
-                </span>
-
-            </div>
-
-        </div>
-
-
-        <div class="card">
-
-            <h2>🔬 الحكم التجريبي</h2>
-
-            <div
-                id="verdict"
-                class="verdict">
-            </div>
-
-        </div>
-
-
-    </div>
-
-
-    <div class="footer">
-
-        ELSADIGAI — Experimental Research Prototype
-
-    </div>
+<p>
+🧠 نظام تجريبي لدراسة التعلم من التجربة والذاكرة
+وتحسين اتخاذ القرار.
+</p>
 
 </div>
 
+<button id="runButton" onclick="runTest()">
+▶ تشغيل الاختبار
+</button>
+
+<div id="status" class="status"></div>
+
+<div id="results"></div>
+
+</div>
 
 <script>
 
+function number(value) {
+
+    if (value === undefined || value === null) {
+        return 0;
+    }
+
+    return Number(value);
+}
+
+
 async function runTest() {
 
-    const button =
-        document.getElementById("runButton");
-
-    const status =
-        document.getElementById("status");
-
-    const result =
-        document.getElementById("result");
-
+    const button = document.getElementById("runButton");
+    const status = document.getElementById("status");
+    const results = document.getElementById("results");
 
     button.disabled = true;
 
-    result.style.display = "none";
-
-    status.className = "status";
-
-    status.innerText =
-        "⏳ جاري تشغيل الاختبار...";
-
+    status.innerHTML = "⏳ جاري تشغيل التجربة...";
+    results.innerHTML = "";
 
     try {
 
-        const response =
-            await fetch("/api/test");
-
-
-        const data =
-            await response.json();
-
+        const response = await fetch("/api/test");
 
         if (!response.ok) {
-
-            throw new Error(
-                data.error || "حدث خطأ"
-            );
-
+            throw new Error("HTTP " + response.status);
         }
 
+        const data = await response.json();
 
-        document.getElementById(
-            "beforeReward"
-        ).innerText =
-            data.before.average_reward.toFixed(4);
+        console.log("ELSADIGAI RESULT:", data);
 
+        const before = data.before || {};
+        const after = data.after || {};
+        const generalization = data.generalization || {};
+        const improvement = data.improvement || {};
+        const training = data.training || {};
 
-        document.getElementById(
-            "beforeAccuracy"
-        ).innerText =
-            (
-                data.before.best_action_rate * 100
-            ).toFixed(2) + "%";
+        results.innerHTML = `
 
+        <h2>📊 قبل التعلم</h2>
 
-        document.getElementById(
-            "afterReward"
-        ).innerText =
-            data.after.average_reward.toFixed(4);
+        <div class="grid">
 
+            <div class="card">
 
-        document.getElementById(
-            "afterAccuracy"
-        ).innerText =
-            (
-                data.after.best_action_rate * 100
-            ).toFixed(2) + "%";
+                <h2>متوسط المكافأة</h2>
 
+                <div class="value">
+                    ${number(before.reward).toFixed(4)}
+                </div>
 
-        document.getElementById(
-            "generalizationReward"
-        ).innerText =
-            data.generalization.average_reward
-                .toFixed(4);
+            </div>
 
+            <div class="card">
 
-        document.getElementById(
-            "generalizationAccuracy"
-        ).innerText =
-            (
-                data.generalization.best_action_rate
-                * 100
-            ).toFixed(2) + "%";
+                <h2>دقة اختيار الفعل</h2>
+
+                <div class="value">
+                    ${number(before.accuracy).toFixed(2)}%
+                </div>
+
+            </div>
+
+        </div>
 
 
-        document.getElementById(
-            "rewardImprovement"
-        ).innerText =
-            data.reward_improvement_pct
-                .toFixed(2) + "%";
+        <h2>📈 بعد التعلم</h2>
+
+        <div class="grid">
+
+            <div class="card">
+
+                <h2>متوسط المكافأة</h2>
+
+                <div class="value">
+                    ${number(after.reward).toFixed(4)}
+                </div>
+
+            </div>
+
+            <div class="card">
+
+                <h2>دقة اختيار الفعل</h2>
+
+                <div class="value">
+                    ${number(after.accuracy).toFixed(2)}%
+                </div>
+
+            </div>
+
+        </div>
 
 
-        document.getElementById(
-            "accuracyImprovement"
-        ).innerText =
-            data.accuracy_improvement_pp
-                .toFixed(2) + " نقطة";
+        <h2>🌐 اختبار التعميم</h2>
+
+        <div class="grid">
+
+            <div class="card">
+
+                <h2>متوسط المكافأة</h2>
+
+                <div class="value">
+                    ${number(generalization.reward).toFixed(4)}
+                </div>
+
+            </div>
+
+            <div class="card">
+
+                <h2>دقة التعميم</h2>
+
+                <div class="value">
+                    ${number(generalization.accuracy).toFixed(2)}%
+                </div>
+
+            </div>
+
+        </div>
 
 
-        document.getElementById(
-            "verdict"
-        ).innerText =
-            data.verdict;
+        <h2>📐 التحسن</h2>
+
+        <div class="grid">
+
+            <div class="card">
+
+                <h2>تحسن المكافأة</h2>
+
+                <div class="value">
+                    ${number(improvement.reward_percent).toFixed(2)}%
+                </div>
+
+            </div>
+
+            <div class="card">
+
+                <h2>تحسن الدقة</h2>
+
+                <div class="value">
+                    ${number(improvement.accuracy_points).toFixed(2)}
+                </div>
+
+                <div class="small">
+                    نقطة مئوية
+                </div>
+
+            </div>
+
+        </div>
 
 
-        result.style.display = "block";
+        <div class="card" style="margin-top:20px">
 
-        status.className =
-            "status success";
+            <h2>🧠 المعرفة المكتسبة</h2>
 
-        status.innerText =
-            "✅ اكتمل الاختبار";
+            <div class="value">
+                ${number(data.knowledge_size)}
+            </div>
+
+            <div class="small">
+                عناصر معرفية
+            </div>
+
+        </div>
 
 
-    } catch (error) {
+        <div class="card" style="margin-top:20px">
 
-        status.className =
-            "status error";
+            <h2>💾 الذاكرة</h2>
 
-        status.innerText =
-            "❌ " + error.message;
+            <div class="value">
+                ${number(data.memory_size)}
+            </div>
+
+            <div class="small">
+                تجربة محفوظة
+            </div>
+
+        </div>
+
+
+        <div class="card" style="margin-top:20px">
+
+            <h2>🧪 التدريب</h2>
+
+            <p>
+                عدد التجارب:
+                <strong>${number(training.episodes)}</strong>
+            </p>
+
+            <p>
+                متوسط مكافأة التدريب:
+                <strong>
+                ${number(training.average_reward).toFixed(4)}
+                </strong>
+            </p>
+
+        </div>
+
+
+        <div class="verdict">
+
+            🔬 الحكم التجريبي
+
+            <br><br>
+
+            ${
+                data.verdict
+                ? "✅ " + data.verdict
+                : "تم اكتمال الاختبار"
+            }
+
+        </div>
+
+        `;
+
+        status.innerHTML = "✅ اكتمل الاختبار";
 
     }
 
+    catch (error) {
 
-    button.disabled = false;
+        console.error(error);
+
+        status.innerHTML = `
+        <div class="error">
+        ❌ حدث خطأ أثناء تشغيل الاختبار
+        <br><br>
+        ${error.message}
+        </div>
+        `;
+
+    }
+
+    finally {
+
+        button.disabled = false;
+
+    }
 
 }
 
 </script>
 
-
 </body>
-
 </html>
 """
 
 
 @app.route("/")
 def home():
-
     return render_template_string(HTML)
 
 
@@ -493,10 +412,10 @@ def test():
 
         return jsonify(report)
 
-    except Exception as error:
+    except Exception as e:
 
         return jsonify({
-            "error": str(error)
+            "error": str(e)
         }), 500
 
 
